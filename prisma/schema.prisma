@@ -1,0 +1,247 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// User model
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String    @unique
+  emailVerified DateTime?
+  image         String?
+  password      String?
+  role          Role      @default(USER)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  // Relations
+  accounts      Account[]
+  sessions      Session[]
+  documents     Document[]
+  collections   Collection[]
+  payments      Payment[]
+  chatHistories ChatHistory[]
+  
+  @@map("users")
+}
+
+// NextAuth models
+model Account {
+  id                 String   @id @default(cuid())
+  userId             String
+  type               String
+  provider           String
+  providerAccountId  String
+  refresh_token      String?  @db.Text
+  access_token       String?  @db.Text
+  expires_at         Int?
+  token_type         String?
+  scope              String?
+  id_token           String?  @db.Text
+  session_state      String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@map("accounts")
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  @@map("sessions")
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+  @@map("verification_tokens")
+}
+
+// Document models
+model Document {
+  id          String   @id @default(cuid())
+  title       String
+  fileName    String
+  fileSize    Int
+  fileType    String
+  status      DocumentStatus @default(PROCESSING)
+  pageCount   Int?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  userId      String
+  
+  // Relations
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  collections DocumentCollection[]
+  chunks      DocumentChunk[]
+  chatHistories ChatHistory[]
+  
+  @@map("documents")
+}
+
+model DocumentChunk {
+  id          String   @id @default(cuid())
+  documentId  String
+  text        String   @db.Text
+  page        Int?
+  section     String?
+  keywords    String[]
+  vectorId    String?  // ID in vector database
+  createdAt   DateTime @default(now())
+  
+  // Relations
+  document    Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  
+  @@map("document_chunks")
+}
+
+model Collection {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  isPublic    Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  userId      String
+  
+  // Relations
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  documents   DocumentCollection[]
+  chatHistories ChatHistory[]
+  
+  @@map("collections")
+}
+
+model DocumentCollection {
+  documentId    String
+  collectionId  String
+  addedAt       DateTime @default(now())
+  
+  // Relations
+  document      Document   @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  collection    Collection @relation(fields: [collectionId], references: [id], onDelete: Cascade)
+  
+  @@id([documentId, collectionId])
+  @@map("document_collections")
+}
+
+// Content management
+model Page {
+  id          String   @id @default(cuid())
+  title       String
+  slug        String   @unique
+  content     String   @db.Text
+  isPublished Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  @@map("pages")
+}
+
+// Payment models
+model Payment {
+  id          String   @id @default(cuid())
+  userId      String
+  amount      Int
+  currency    String
+  status      PaymentStatus
+  stripeId    String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  // Relations
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  @@map("payments")
+}
+
+model Subscription {
+  id              String   @id @default(cuid())
+  userId          String   @unique
+  stripeCustomerId String?
+  stripeSubscriptionId String?
+  stripePriceId   String?
+  status          SubscriptionStatus
+  currentPeriodStart DateTime
+  currentPeriodEnd DateTime
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  
+  @@map("subscriptions")
+}
+
+// Chat models
+model ChatHistory {
+  id           String        @id @default(cuid())
+  userId       String
+  documentId   String?
+  collectionId String?
+  query        String
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  
+  // Relations
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  document     Document?     @relation(fields: [documentId], references: [id], onDelete: SetNull)
+  collection   Collection?   @relation(fields: [collectionId], references: [id], onDelete: SetNull)
+  messages     ChatMessage[]
+  
+  @@map("chat_histories")
+}
+
+model ChatMessage {
+  id            String      @id @default(cuid())
+  chatHistoryId String
+  role          String
+  content       String      @db.Text
+  createdAt     DateTime    @default(now())
+  
+  // Relations
+  chatHistory   ChatHistory @relation(fields: [chatHistoryId], references: [id], onDelete: Cascade)
+  
+  @@map("chat_messages")
+}
+
+// Enums
+enum Role {
+  USER
+  ADMIN
+}
+
+enum DocumentStatus {
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+enum PaymentStatus {
+  PENDING
+  COMPLETED
+  FAILED
+  REFUNDED
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  CANCELED
+  PAST_DUE
+  UNPAID
+  TRIALING
+}
