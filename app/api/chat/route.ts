@@ -1,5 +1,4 @@
-import { AIStream } from "ai/rsc"
-import { streamText } from "ai"
+import { AIStream, streamText } from "ai"
 import { openai } from "@ai-sdk/openai"
 import { getServerSession } from "next-auth/next"
 import { authOptions } from "@/lib/auth"
