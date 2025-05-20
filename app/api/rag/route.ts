@@ -1,5 +1,4 @@
-import { AIStream } from "ai/rsc"
-import { streamText } from "ai"
+import { StreamingTextResponse, streamText } from "ai"
 import { openai } from "@ai-sdk/openai"
 import { z } from "zod"
 
@@ -82,7 +81,8 @@ Document excerpts:
         },
       })
 
-      return AIStream(response)
+      // Use StreamingTextResponse instead of AIStream
+      return new StreamingTextResponse(response.stream)
     } catch (aiError) {
       console.error("Error generating AI response:", aiError)
 

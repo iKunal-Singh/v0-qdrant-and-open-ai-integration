@@ -1,4 +1,4 @@
-import { AIStream, streamText } from "ai"
+import { StreamingTextResponse, streamText } from "ai"
 import { openai } from "@ai-sdk/openai"
 import { getServerSession } from "next-auth/next"
 import { authOptions } from "@/lib/auth"
@@ -355,7 +355,8 @@ ${context}`,
         })
       })
 
-      return AIStream(response)
+      // Use StreamingTextResponse instead of AIStream
+      return new StreamingTextResponse(response.stream)
     } catch (aiError) {
       console.error("Error generating AI response:", aiError)
 
