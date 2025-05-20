@@ -1,102 +1,72 @@
-import { StreamingTextResponse, streamText } from "ai"
+import { streamText } from "ai"
 import { openai } from "@ai-sdk/openai"
-import { z } from "zod"
+import type { NextRequest } from "next/server"
+import { prisma } from "@/lib/prisma"
+import { getServerSession } from "next-auth"
+import { authOptions } from "@/lib/auth"
+import { searchVectorDB } from "@/lib/vector-db"
 
-export const runtime = "nodejs"
+export const maxDuration = 60
 
-export async function POST(req: Request) {
+export async function POST(req: NextRequest) {
   try {
-    const { messages } = await req.json()
-    const lastMessage = messages[messages.length - 1]
+    const session = await getServerSession(authOptions)
 
-    if (!lastMessage?.content) {
-      return Response.json({ error: "No message content provided" }, { status: 400 })
-    }
-
-    console.log("Processing query:", lastMessage.content)
-
-    // Mock document chunks for demonstration
-    const mockChunks = [
-      {
-        id: "mock-1",
-        payload: {
-          text: "This is a sample document chunk that demonstrates how Agent DOC works. It provides information about documents that have been uploaded to the system.",
-          file: "Sample Document.pdf",
-          page: 1,
-          title: "Sample Document",
-        },
-      },
-      {
-        id: "mock-2",
-        payload: {
-          text: "Agent DOC is a document retrieval system that uses AI to answer questions about your documents. It can process PDF files and extract relevant information.",
-          file: "Agent DOC Guide.pdf",
-          page: 1,
-          title: "Agent DOC Guide",
-        },
-      },
-    ]
-
-    console.log("Generating response with context...")
-
-    try {
-      // Check if OpenAI API key is available
-      if (!process.env.OPENAI_API_KEY) {
-        throw new Error("OpenAI API key is not configured")
-      }
-
-      // Generation with Source Citations
-      const response = await streamText({
-        model: openai("gpt-4o"),
-        system: `You are a helpful assistant that answers questions based on the provided document excerpts.
-        
-Answer using ONLY information from these excerpts and cite your sources using [source#] notation.
-If the information needed is not in the excerpts, say "I don't have enough information about that."
-
-Document excerpts:
-[source1] ${mockChunks[0].payload.text}
-[source2] ${mockChunks[1].payload.text}`,
-        messages,
-        temperature: 0.2,
-        tools: {
-          documentPreview: {
-            description: "Show original document context",
-            parameters: z.object({
-              sourceId: z.number().int().min(1).max(mockChunks.length),
-            }),
-            execute: async ({ sourceId }) => {
-              const index = sourceId - 1
-              if (index >= 0 && index < mockChunks.length) {
-                return {
-                  id: mockChunks[index].id,
-                  text: mockChunks[index].payload.text,
-                  file: mockChunks[index].payload.file,
-                  page: mockChunks[index].payload.page,
-                  title: mockChunks[index].payload.title,
-                }
-              }
-              throw new Error(`Invalid source ID: ${sourceId}`)
-            },
-          },
-        },
+    if (!session?.user) {
+      return new Response(JSON.stringify({ error: "Unauthorized" }), {
+        status: 401,
+        headers: { "Content-Type": "application/json" },
       })
-
-      // Use StreamingTextResponse instead of AIStream
-      return new StreamingTextResponse(response.stream)
-    } catch (aiError) {
-      console.error("Error generating AI response:", aiError)
-
-      // Return a simple error response
-      return Response.json(
-        {
-          error: "Failed to generate response",
-          details: aiError instanceof Error ? aiError.message : "Unknown error",
-        },
-        { status: 500 },
-      )
     }
+
+    const { messages, documentId } = await req.json()
+    const userQuery = messages[messages.length - 1].content
+
+    // Get document context from vector DB
+    const searchResults = await searchVectorDB(userQuery, documentId)
+
+    // Create context from search results
+    const context = searchResults.map((result) => result.text).join("\n\n")
+
+    // Create system message with context
+    const systemMessage = `You are a helpful assistant that answers questions based on the provided document context. 
+    Use the following context to answer the user's question. If you cannot find the answer in the context, 
+    say that you don't have enough information to answer accurately.
+    
+    Context:
+    ${context}`
+
+    // Save chat history
+    const chatHistory = await prisma.chatHistory.create({
+      data: {
+        userId: session.user.id as string,
+        documentId: documentId,
+        query: userQuery,
+        messages: {
+          create: [
+            ...messages.map((msg: any) => ({
+              role: msg.role,
+              content: msg.content,
+            })),
+          ],
+        },
+      },
+    })
+
+    // Prepare messages for the AI
+    const aiMessages = [{ role: "system", content: systemMessage }, ...messages]
+
+    const response = await streamText({
+      model: openai("gpt-4o"),
+      messages: aiMessages,
+    })
+
+    return new Response(response.stream)
   } catch (error) {
     console.error("RAG API error:", error)
-    return Response.json({ error: "Failed to process request" }, { status: 500 })
+    return new Response(JSON.stringify({ error: "Internal server error" }), {
+      status: 500,
+      headers: { "Content-Type": "application/json" },
+    })
   }
 }

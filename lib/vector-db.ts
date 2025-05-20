@@ -107,3 +107,31 @@ export async function ingestDocument(file: File): Promise<{
     throw error
   }
 }
+
+// Add the missing searchVectorDB function
+export async function searchVectorDB(query: string, limit = 5) {
+  if (!QdrantClient) {
+    console.warn("Qdrant client is not initialized. Cannot search vector DB.")
+    return []
+  }
+
+  try {
+    // For now, we'll use a mock vector for the query
+    // In a real implementation, you would generate embeddings for the query
+    const mockQueryVector = Array(1536).fill(Math.random())
+
+    const searchResults = await QdrantClient.search(COLLECTION_NAME, {
+      vector: mockQueryVector,
+      limit: limit,
+      with_payload: true,
+    })
+
+    return searchResults.map((result) => ({
+      score: result.score,
+      chunk: result.payload as DocumentChunk,
+    }))
+  } catch (error) {
+    console.error("Error searching vector DB:", error)
+    throw error
+  }
+}

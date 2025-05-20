@@ -1,20 +1,25 @@
-import { StreamingTextResponse, streamText } from "ai"
+import { streamText } from "ai"
 import { openai } from "@ai-sdk/openai"
-import { getServerSession } from "next-auth/next"
+import type { NextRequest } from "next/server"
+import { prisma } from "@/lib/prisma"
+import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
-import prisma from "@/lib/prisma"
 import { QdrantClient } from "@/lib/vector-db"
 import { createEmbedding } from "@/lib/embeddings"
 import { z } from "zod"
 
 export const runtime = "nodejs"
+export const maxDuration = 60
 
-export async function POST(req: Request) {
+export async function POST(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions)
 
-    if (!session) {
-      return Response.json({ error: "Unauthorized" }, { status: 401 })
+    if (!session?.user) {
+      return new Response(JSON.stringify({ error: "Unauthorized" }), {
+        status: 401,
+        headers: { "Content-Type": "application/json" },
+      })
     }
 
     const { messages, documentId, collectionId } = await req.json()
@@ -295,10 +300,16 @@ export async function POST(req: Request) {
       // Save chat history
       const chatHistory = await prisma.chatHistory.create({
         data: {
-          userId: session.user.id,
+          userId: session.user.id as string,
           documentId: documentId || null,
           collectionId: collectionId || null,
           query,
+          messages: {
+            create: messages.map((msg: any) => ({
+              role: msg.role,
+              content: msg.content,
+            })),
+          },
         },
       })
 
@@ -355,22 +366,22 @@ ${context}`,
         })
       })
 
-      // Use StreamingTextResponse instead of AIStream
-      return new StreamingTextResponse(response.stream)
+      // Return the stream directly
+      return new Response(response.stream)
     } catch (aiError) {
       console.error("Error generating AI response:", aiError)
 
       // Return a simple error response
-      return Response.json(
-        {
-          error: "Failed to generate response",
-          details: aiError instanceof Error ? aiError.message : "Unknown error",
-        },
-        { status: 500 },
-      )
+      return new Response(JSON.stringify({ error: "Failed to generate response" }), {
+        status: 500,
+        headers: { "Content-Type": "application/json" },
+      })
     }
   } catch (error) {
     console.error("Chat API error:", error)
-    return Response.json({ error: "Failed to process request" }, { status: 500 })
+    return new Response(JSON.stringify({ error: "Internal server error" }), {
+      status: 500,
+      headers: { "Content-Type": "application/json" },
+    })
   }
 }

@@ -1,16 +1,11 @@
 "use client"
 
-import type React from "react"
-
-import { createContext, useContext, useEffect, useState } from "react"
+import * as React from "react"
+import { ThemeProvider as NextThemesProvider } from "next-themes"
+import type { ThemeProviderProps } from "next-themes"
+import { createContext, useContext } from "react"
 
 type Theme = "dark" | "light" | "system"
-
-type ThemeProviderProps = {
-  children: React.ReactNode
-  defaultTheme?: Theme
-  storageKey?: string
-}
 
 type ThemeProviderState = {
   theme: Theme
@@ -24,61 +19,28 @@ const initialState: ThemeProviderState = {
 
 const ThemeProviderContext = createContext<ThemeProviderState>(initialState)
 
-export function ThemeProvider({
-  children,
-  defaultTheme = "system",
-  storageKey = "agent-doc-theme",
-  ...props
-}: ThemeProviderProps) {
-  const [theme, setTheme] = useState<Theme>(defaultTheme)
+export function ThemeProvider({ children, ...props }: ThemeProviderProps) {
+  const [mounted, setMounted] = React.useState(false)
 
-  useEffect(() => {
-    // Now we access localStorage only in the useEffect, which runs client-side
-    const storedTheme = localStorage.getItem(storageKey) as Theme
-    if (storedTheme) {
-      setTheme(storedTheme)
-    }
-  }, [storageKey])
+  // useEffect only runs on the client, so now we can safely show the UI
+  React.useEffect(() => {
+    setMounted(true)
+  }, [])
 
-  useEffect(() => {
-    const root = window.document.documentElement
-
-    root.classList.remove("light", "dark")
-
-    if (theme === "system") {
-      const systemTheme = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light"
-
-      root.classList.add(systemTheme)
-      return
-    }
-
-    root.classList.add(theme)
-  }, [theme])
-
-  const value = {
-    theme,
-    setTheme: (theme: Theme) => {
-      try {
-        localStorage.setItem(storageKey, theme)
-      } catch (e) {
-        // Handle localStorage errors
-        console.error("Failed to set theme in localStorage", e)
-      }
-      setTheme(theme)
-    },
+  if (!mounted) {
+    // Return a placeholder with the same structure
+    return <div style={{ visibility: "hidden" }}>{children}</div>
   }
 
-  return (
-    <ThemeProviderContext.Provider {...props} value={value}>
-      {children}
-    </ThemeProviderContext.Provider>
-  )
+  return <NextThemesProvider {...props}>{children}</NextThemesProvider>
 }
 
 export const useTheme = () => {
   const context = useContext(ThemeProviderContext)
 
-  if (context === undefined) throw new Error("useTheme must be used within a ThemeProvider")
+  if (context === undefined) {
+    throw new Error("useTheme must be used within a ThemeProvider")
+  }
 
   return context
 }
