@@ -12,6 +12,7 @@ import { Label } from "@/components/ui/label"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { LoaderIcon } from "lucide-react"
+import { FcGoogle } from "react-icons/fc"
 
 const loginSchema = z.object({
   email: z.string().email("Please enter a valid email address"),
@@ -24,6 +25,8 @@ export function LoginForm() {
   const router = useRouter()
   const [error, setError] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
+  const [isGoogleLoading, setIsGoogleLoading] = useState(false)
+  const [isEmailLinkLoading, setIsEmailLinkLoading] = useState(false)
 
   const {
     register,
@@ -56,6 +59,34 @@ export function LoginForm() {
       console.error("Login error:", error)
     } finally {
       setIsLoading(false)
+    }
+  }
+
+  const handleGoogleSignIn = async () => {
+    setIsGoogleLoading(true)
+    setError(null)
+
+    try {
+      await signIn("google", { callbackUrl: "/dashboard" })
+      // Note: No need to manually redirect as signIn will handle it
+    } catch (error) {
+      setError("Failed to sign in with Google. Please try again.")
+      console.error("Google sign-in error:", error)
+      setIsGoogleLoading(false)
+    }
+  }
+
+  const handleEmailLinkSignIn = async () => {
+    setIsEmailLinkLoading(true)
+    setError(null)
+
+    try {
+      await signIn("email", { email: "", callbackUrl: "/dashboard" })
+      // Note: No need to manually redirect as signIn will handle it
+    } catch (error) {
+      setError("Failed to send email link. Please try again.")
+      console.error("Email link sign-in error:", error)
+      setIsEmailLinkLoading(false)
     }
   }
 
@@ -135,20 +166,15 @@ export function LoginForm() {
             </div>
           </div>
 
-          <div className="mt-6 grid grid-cols-2 gap-3">
+          <div className="mt-6 grid grid-cols-1 gap-3">
             <Button
               variant="outline"
-              onClick={() => signIn("google", { callbackUrl: "/dashboard" })}
-              className="w-full"
+              onClick={handleGoogleSignIn}
+              disabled={isGoogleLoading}
+              className="w-full flex items-center justify-center gap-2"
             >
-              Google
-            </Button>
-            <Button
-              variant="outline"
-              onClick={() => signIn("email", { email: "", callbackUrl: "/dashboard" })}
-              className="w-full"
-            >
-              Email Link
+              {isGoogleLoading ? <LoaderIcon className="h-4 w-4 animate-spin" /> : <FcGoogle className="h-5 w-5" />}
+              <span>Sign in with Google</span>
             </Button>
           </div>
         </div>
