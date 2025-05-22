@@ -8,6 +8,10 @@ import prisma from "@/lib/prisma"
 
 const env = validateEnv()
 
+// Get the base URL for the application
+const baseUrl =
+  process.env.NEXTAUTH_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000")
+
 export const authOptions: NextAuthOptions = {
   adapter: PrismaAdapter(prisma),
   session: {
@@ -73,12 +77,6 @@ export const authOptions: NextAuthOptions = {
   callbacks: {
     async signIn({ account, profile }) {
       if (account?.provider === "google" && profile?.email) {
-        // Check if user exists
-        const user = await prisma.user.findUnique({
-          where: { email: profile.email },
-        })
-
-        // If user doesn't exist, we'll create one when the session is created
         return true
       }
       return true
@@ -104,30 +102,6 @@ export const authOptions: NextAuthOptions = {
         }
       }
 
-      // Google sign in without existing user
-      if (account?.provider === "google" && profile && !user) {
-        // Create a new user with Google profile data
-        try {
-          const newUser = await prisma.user.create({
-            data: {
-              name: profile.name,
-              email: profile.email as string,
-              image: profile.image,
-              role: "USER",
-            },
-          })
-
-          return {
-            ...token,
-            id: newUser.id,
-            role: newUser.role,
-          }
-        } catch (error) {
-          console.error("Error creating user from Google profile:", error)
-          // Continue with token as is
-        }
-      }
-
       // Return previous token if the user hasn't changed
       const dbUser = await prisma.user.findFirst({
         where: {
@@ -150,16 +124,6 @@ export const authOptions: NextAuthOptions = {
         picture: dbUser.image,
         role: dbUser.role,
       }
-    },
-  },
-  events: {
-    async signIn({ user, account, profile, isNewUser }) {
-      // Log sign-in event
-      console.log(`User ${user.email} signed in with ${account?.provider}`)
-    },
-    async createUser({ user }) {
-      // Log user creation
-      console.log(`New user created: ${user.email}`)
     },
   },
   debug: process.env.NODE_ENV === "development",

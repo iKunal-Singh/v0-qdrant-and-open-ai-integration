@@ -13,6 +13,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { LoaderIcon } from "lucide-react"
 import { FcGoogle } from "react-icons/fc"
+import Link from "next/link"
 
 const loginSchema = z.object({
   email: z.string().email("Please enter a valid email address"),
@@ -67,26 +68,17 @@ export function LoginForm() {
     setError(null)
 
     try {
-      await signIn("google", { callbackUrl: "/dashboard" })
-      // Note: No need to manually redirect as signIn will handle it
+      // Use callbackUrl to redirect after successful authentication
+      // Use redirect: true to handle the redirect automatically
+      await signIn("google", {
+        callbackUrl: "/dashboard",
+        redirect: true,
+      })
     } catch (error) {
+      // This code may not run since we're redirecting, but it's here for completeness
       setError("Failed to sign in with Google. Please try again.")
       console.error("Google sign-in error:", error)
       setIsGoogleLoading(false)
-    }
-  }
-
-  const handleEmailLinkSignIn = async () => {
-    setIsEmailLinkLoading(true)
-    setError(null)
-
-    try {
-      await signIn("email", { email: "", callbackUrl: "/dashboard" })
-      // Note: No need to manually redirect as signIn will handle it
-    } catch (error) {
-      setError("Failed to send email link. Please try again.")
-      console.error("Email link sign-in error:", error)
-      setIsEmailLinkLoading(false)
     }
   }
 
@@ -102,7 +94,16 @@ export function LoginForm() {
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
           {error && (
             <Alert variant="destructive" className="mb-4">
-              <AlertDescription>{error}</AlertDescription>
+              <AlertDescription>
+                {error}
+                {error.includes("Access blocked") && (
+                  <div className="mt-2">
+                    <Link href="/auth/troubleshoot" className="text-blue-600 dark:text-blue-400 hover:underline">
+                      View troubleshooting guide
+                    </Link>
+                  </div>
+                )}
+              </AlertDescription>
             </Alert>
           )}
 
@@ -176,6 +177,12 @@ export function LoginForm() {
               {isGoogleLoading ? <LoaderIcon className="h-4 w-4 animate-spin" /> : <FcGoogle className="h-5 w-5" />}
               <span>Sign in with Google</span>
             </Button>
+          </div>
+
+          <div className="mt-4 text-center text-sm">
+            <Link href="/auth/troubleshoot" className="text-accent-light dark:text-accent-dark hover:underline">
+              Having trouble signing in with Google?
+            </Link>
           </div>
         </div>
       </CardContent>
