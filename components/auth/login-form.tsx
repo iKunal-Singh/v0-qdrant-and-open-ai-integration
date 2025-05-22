@@ -45,7 +45,8 @@ export function LoginForm() {
       switch (errorParam) {
         case "Callback":
           errorMessage = "Authentication callback error"
-          details = "There was an issue with the authentication callback. This might be due to configuration issues."
+          details =
+            "There was an issue with the authentication callback. This might be due to configuration issues. Click the troubleshooting link below for help."
           break
         case "AccessDenied":
           errorMessage = "Access denied"
@@ -157,11 +158,16 @@ export function LoginForm() {
             <AlertTitle>{error}</AlertTitle>
             <AlertDescription>
               {errorDetails}
-              <div className="mt-2">
-                <Link href="/auth/troubleshoot" className="text-blue-600 dark:text-blue-400 hover:underline text-sm">
-                  View troubleshooting guide
-                </Link>
-              </div>
+              {(errorParam === "Callback" || errorParam === "OAuthCallback") && (
+                <div className="mt-2">
+                  <Link
+                    href="/auth/callback-debug"
+                    className="text-blue-600 dark:text-blue-400 hover:underline text-sm"
+                  >
+                    View callback troubleshooting guide
+                  </Link>
+                </div>
+              )}
             </AlertDescription>
           </Alert>
         )}

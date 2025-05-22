@@ -8,25 +8,53 @@ import prisma from "@/lib/prisma"
 
 const env = validateEnv()
 
+// Enhanced logging function
+function logAuthEvent(event: string, details: any) {
+  console.log(`[AUTH] ${event}:`, JSON.stringify(details, null, 2))
+}
+
 // Get the base URL for the application
 const baseUrl =
   process.env.NEXTAUTH_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000")
 
-// Enhanced logging function
-function logAuthEvent(event: string, details: any) {
-  console.log(`[AUTH] ${event}:`, JSON.stringify(details, null, 2))
-
-  // In production, you might want to log to a service like Sentry or Datadog
-  if (process.env.NODE_ENV === "production") {
-    // Example: Sentry.captureMessage(`[AUTH] ${event}`, { extra: details })
-  }
-}
+// Determine if we're in a production environment
+const isProduction = process.env.NODE_ENV === "production"
 
 export const authOptions: NextAuthOptions = {
   adapter: PrismaAdapter(prisma),
   session: {
     strategy: "jwt",
     maxAge: 30 * 24 * 60 * 60, // 30 days
+  },
+  // Explicitly set the cookie options to ensure proper handling across environments
+  cookies: {
+    sessionToken: {
+      name: `${isProduction ? "__Secure-" : ""}next-auth.session-token`,
+      options: {
+        httpOnly: true,
+        sameSite: "lax",
+        path: "/",
+        secure: isProduction,
+      },
+    },
+    callbackUrl: {
+      name: `${isProduction ? "__Secure-" : ""}next-auth.callback-url`,
+      options: {
+        httpOnly: true,
+        sameSite: "lax",
+        path: "/",
+        secure: isProduction,
+      },
+    },
+    csrfToken: {
+      name: `${isProduction ? "__Host-" : ""}next-auth.csrf-token`,
+      options: {
+        httpOnly: true,
+        sameSite: "lax",
+        path: "/",
+        secure: isProduction,
+      },
+    },
   },
   pages: {
     signIn: "/auth/login",
@@ -75,11 +103,13 @@ export const authOptions: NextAuthOptions = {
     GoogleProvider({
       clientId: process.env.GOOGLE_CLIENT_ID || "",
       clientSecret: process.env.GOOGLE_CLIENT_SECRET || "",
+      // Explicitly set the callback URL to ensure it matches what's configured in Google Cloud Console
       authorization: {
         params: {
           prompt: "consent",
           access_type: "offline",
           response_type: "code",
+          redirect_uri: `${baseUrl}/api/auth/callback/google`,
         },
       },
       // Explicitly define the profile function to ensure consistent data structure
