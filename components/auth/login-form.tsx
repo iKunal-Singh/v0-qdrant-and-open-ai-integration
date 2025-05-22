@@ -24,8 +24,10 @@ type LoginFormValues = z.infer<typeof loginSchema>
 export function LoginForm() {
   const router = useRouter()
   const searchParams = useSearchParams()
-  const callbackUrl = searchParams?.get("callbackUrl") || "/dashboard"
-  const errorParam = searchParams?.get("error")
+
+  // Safely access search params with null checks
+  const callbackUrl = searchParams ? searchParams.get("callbackUrl") || "/dashboard" : "/dashboard"
+  const errorParam = searchParams ? searchParams.get("error") : null
 
   const [error, setError] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
