@@ -8,10 +8,6 @@ import prisma from "@/lib/prisma"
 
 const env = validateEnv()
 
-// Get the base URL for the application
-const baseUrl =
-  process.env.NEXTAUTH_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000")
-
 export const authOptions: NextAuthOptions = {
   adapter: PrismaAdapter(prisma),
   session: {
@@ -72,14 +68,32 @@ export const authOptions: NextAuthOptions = {
           response_type: "code",
         },
       },
+      profile(profile) {
+        return {
+          id: profile.sub,
+          name: profile.name,
+          email: profile.email,
+          image: profile.picture,
+          role: "USER",
+        }
+      },
     }),
   ],
   callbacks: {
-    async signIn({ account, profile }) {
-      if (account?.provider === "google" && profile?.email) {
-        return true
-      }
+    async signIn({ account, profile, user }) {
+      // Always allow sign in
       return true
+    },
+    async redirect({ url, baseUrl }) {
+      // Handle redirects after sign in
+      // If the URL starts with the base URL, allow it
+      if (url.startsWith(baseUrl)) return url
+
+      // If the URL is a relative URL, prepend the base URL
+      if (url.startsWith("/")) return `${baseUrl}${url}`
+
+      // Otherwise, return to the base URL
+      return baseUrl
     },
     async session({ token, session }) {
       if (token) {
@@ -99,6 +113,56 @@ export const authOptions: NextAuthOptions = {
           ...token,
           id: user.id,
           role: user.role || "USER",
+        }
+      }
+
+      // Google sign in without existing user
+      if (account?.provider === "google" && profile && !user) {
+        try {
+          // Check if user exists by email
+          const existingUser = await prisma.user.findUnique({
+            where: {
+              email: profile.email,
+            },
+          })
+
+          if (existingUser) {
+            // User exists, update their profile
+            const updatedUser = await prisma.user.update({
+              where: {
+                id: existingUser.id,
+              },
+              data: {
+                name: profile.name,
+                image: profile.picture,
+              },
+            })
+
+            return {
+              ...token,
+              id: updatedUser.id,
+              role: updatedUser.role,
+            }
+          } else {
+            // Create a new user with Google profile data
+            const newUser = await prisma.user.create({
+              data: {
+                name: profile.name,
+                email: profile.email as string,
+                image: profile.picture,
+                role: "USER",
+              },
+            })
+
+            return {
+              ...token,
+              id: newUser.id,
+              role: newUser.role,
+            }
+          }
+        } catch (error) {
+          console.error("Error handling Google sign-in:", error)
+          // Continue with token as is
         }
       }
 
@@ -126,5 +190,32 @@ export const authOptions: NextAuthOptions = {
       }
     },
   },
+  events: {
+    async signIn({ user, account, profile, isNewUser }) {
+      console.log(`User ${user.email} signed in with ${account?.provider}`)
+    },
+    async createUser({ user }) {
+      console.log(`New user created: ${user.email}`)
+    },
+    async linkAccount({ user, account, profile }) {
+      console.log(`Account linked for user: ${user.email}`)
+    },
+    async session({ session, token }) {
+      // Log session updates if needed
+    },
+  },
   debug: process.env.NODE_ENV === "development",
+  logger: {
+    error(code, metadata) {
+      console.error(`Auth error: ${code}`, metadata)
+    },
+    warn(code) {
+      console.warn(`Auth warning: ${code}`)
+    },
+    debug(code, metadata) {
+      if (process.env.NODE_ENV === "development") {
+        console.debug(`Auth debug: ${code}`, metadata)
+      }
+    },
+  },
 }

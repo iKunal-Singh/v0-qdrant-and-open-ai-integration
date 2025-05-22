@@ -1,7 +1,7 @@
 "use client"
 
-import { useState } from "react"
-import { useRouter } from "next/navigation"
+import { useState, useEffect } from "react"
+import { useRouter, useSearchParams } from "next/navigation"
 import { signIn } from "next-auth/react"
 import { z } from "zod"
 import { useForm } from "react-hook-form"
@@ -13,7 +13,6 @@ import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { LoaderIcon } from "lucide-react"
 import { FcGoogle } from "react-icons/fc"
-import Link from "next/link"
 
 const loginSchema = z.object({
   email: z.string().email("Please enter a valid email address"),
@@ -24,10 +23,49 @@ type LoginFormValues = z.infer<typeof loginSchema>
 
 export function LoginForm() {
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const callbackUrl = searchParams?.get("callbackUrl") || "/dashboard"
+  const errorParam = searchParams?.get("error")
+
   const [error, setError] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [isGoogleLoading, setIsGoogleLoading] = useState(false)
-  const [isEmailLinkLoading, setIsEmailLinkLoading] = useState(false)
+
+  // Set error from URL parameter if present
+  useEffect(() => {
+    if (errorParam) {
+      let errorMessage = "An error occurred during sign in"
+
+      // Map error codes to user-friendly messages
+      switch (errorParam) {
+        case "Callback":
+          errorMessage = "There was an issue with the authentication callback. Please try again."
+          break
+        case "AccessDenied":
+          errorMessage = "Access was denied. You may not have permission to sign in."
+          break
+        case "OAuthSignin":
+          errorMessage = "Error starting the OAuth sign-in flow. Please try again."
+          break
+        case "OAuthCallback":
+          errorMessage = "Error during the OAuth callback. Please try again."
+          break
+        case "OAuthCreateAccount":
+          errorMessage = "Error creating the OAuth account. Please try again."
+          break
+        case "EmailCreateAccount":
+          errorMessage = "Error creating the email account. Please try again."
+          break
+        case "SessionRequired":
+          errorMessage = "You need to be signed in to access this page."
+          break
+        default:
+          errorMessage = `Authentication error: ${errorParam}`
+      }
+
+      setError(errorMessage)
+    }
+  }, [errorParam])
 
   const {
     register,
@@ -46,6 +84,7 @@ export function LoginForm() {
         redirect: false,
         email: data.email,
         password: data.password,
+        callbackUrl,
       })
 
       if (result?.error) {
@@ -53,7 +92,7 @@ export function LoginForm() {
         return
       }
 
-      router.push("/dashboard")
+      router.push(callbackUrl)
       router.refresh()
     } catch (error) {
       setError("An unexpected error occurred. Please try again.")
@@ -68,14 +107,12 @@ export function LoginForm() {
     setError(null)
 
     try {
-      // Use callbackUrl to redirect after successful authentication
-      // Use redirect: true to handle the redirect automatically
       await signIn("google", {
-        callbackUrl: "/dashboard",
+        callbackUrl,
         redirect: true,
       })
+      // Note: The page will redirect, so the code below won't execute
     } catch (error) {
-      // This code may not run since we're redirecting, but it's here for completeness
       setError("Failed to sign in with Google. Please try again.")
       console.error("Google sign-in error:", error)
       setIsGoogleLoading(false)
@@ -94,16 +131,7 @@ export function LoginForm() {
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
           {error && (
             <Alert variant="destructive" className="mb-4">
-              <AlertDescription>
-                {error}
-                {error.includes("Access blocked") && (
-                  <div className="mt-2">
-                    <Link href="/auth/troubleshoot" className="text-blue-600 dark:text-blue-400 hover:underline">
-                      View troubleshooting guide
-                    </Link>
-                  </div>
-                )}
-              </AlertDescription>
+              <AlertDescription>{error}</AlertDescription>
             </Alert>
           )}
 
@@ -177,12 +205,6 @@ export function LoginForm() {
               {isGoogleLoading ? <LoaderIcon className="h-4 w-4 animate-spin" /> : <FcGoogle className="h-5 w-5" />}
               <span>Sign in with Google</span>
             </Button>
-          </div>
-
-          <div className="mt-4 text-center text-sm">
-            <Link href="/auth/troubleshoot" className="text-accent-light dark:text-accent-dark hover:underline">
-              Having trouble signing in with Google?
-            </Link>
           </div>
         </div>
       </CardContent>
