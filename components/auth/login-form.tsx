@@ -9,10 +9,11 @@ import { zodResolver } from "@hookform/resolvers/zod"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Alert, AlertDescription } from "@/components/ui/alert"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
-import { LoaderIcon } from "lucide-react"
+import { LoaderIcon, AlertCircle } from "lucide-react"
 import { FcGoogle } from "react-icons/fc"
+import Link from "next/link"
 
 const loginSchema = z.object({
   email: z.string().email("Please enter a valid email address"),
@@ -30,6 +31,7 @@ export function LoginForm() {
   const errorParam = searchParams ? searchParams.get("error") : null
 
   const [error, setError] = useState<string | null>(null)
+  const [errorDetails, setErrorDetails] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [isGoogleLoading, setIsGoogleLoading] = useState(false)
 
@@ -37,35 +39,45 @@ export function LoginForm() {
   useEffect(() => {
     if (errorParam) {
       let errorMessage = "An error occurred during sign in"
+      let details = "Please try again or contact support if the problem persists."
 
       // Map error codes to user-friendly messages
       switch (errorParam) {
         case "Callback":
-          errorMessage = "There was an issue with the authentication callback. Please try again."
+          errorMessage = "Authentication callback error"
+          details = "There was an issue with the authentication callback. This might be due to configuration issues."
           break
         case "AccessDenied":
-          errorMessage = "Access was denied. You may not have permission to sign in."
+          errorMessage = "Access denied"
+          details = "You may not have permission to sign in. Please contact support if you believe this is an error."
           break
         case "OAuthSignin":
-          errorMessage = "Error starting the OAuth sign-in flow. Please try again."
+          errorMessage = "Sign-in error"
+          details = "Error starting the authentication process. Please try again."
           break
         case "OAuthCallback":
-          errorMessage = "Error during the OAuth callback. Please try again."
+          errorMessage = "Authentication error"
+          details = "Error during the authentication callback. Please try again or use a different sign-in method."
           break
         case "OAuthCreateAccount":
-          errorMessage = "Error creating the OAuth account. Please try again."
+          errorMessage = "Account creation error"
+          details = "Error creating your account. Please try again or contact support."
           break
         case "EmailCreateAccount":
-          errorMessage = "Error creating the email account. Please try again."
+          errorMessage = "Email account error"
+          details = "Error creating your email account. Please try again or contact support."
           break
         case "SessionRequired":
-          errorMessage = "You need to be signed in to access this page."
+          errorMessage = "Authentication required"
+          details = "You need to be signed in to access this page."
           break
         default:
           errorMessage = `Authentication error: ${errorParam}`
+          details = "An unexpected error occurred. Please try again or contact support."
       }
 
       setError(errorMessage)
+      setErrorDetails(details)
     }
   }, [errorParam])
 
@@ -80,6 +92,7 @@ export function LoginForm() {
   const onSubmit = async (data: LoginFormValues) => {
     setIsLoading(true)
     setError(null)
+    setErrorDetails(null)
 
     try {
       const result = await signIn("credentials", {
@@ -90,14 +103,16 @@ export function LoginForm() {
       })
 
       if (result?.error) {
-        setError(result.error)
+        setError("Authentication failed")
+        setErrorDetails(result.error)
         return
       }
 
       router.push(callbackUrl)
       router.refresh()
     } catch (error) {
-      setError("An unexpected error occurred. Please try again.")
+      setError("An unexpected error occurred")
+      setErrorDetails("Please try again or contact support if the problem persists.")
       console.error("Login error:", error)
     } finally {
       setIsLoading(false)
@@ -107,15 +122,21 @@ export function LoginForm() {
   const handleGoogleSignIn = async () => {
     setIsGoogleLoading(true)
     setError(null)
+    setErrorDetails(null)
 
     try {
+      // Log the attempt for debugging
+      console.log("Attempting Google sign-in with callback URL:", callbackUrl)
+
+      // Use callbackUrl to redirect after successful authentication
       await signIn("google", {
         callbackUrl,
         redirect: true,
       })
       // Note: The page will redirect, so the code below won't execute
     } catch (error) {
-      setError("Failed to sign in with Google. Please try again.")
+      setError("Google sign-in failed")
+      setErrorDetails("Please try again or use a different sign-in method.")
       console.error("Google sign-in error:", error)
       setIsGoogleLoading(false)
     }
@@ -130,13 +151,22 @@ export function LoginForm() {
         <CardDescription>Enter your credentials to access your account</CardDescription>
       </CardHeader>
       <CardContent>
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-          {error && (
-            <Alert variant="destructive" className="mb-4">
-              <AlertDescription>{error}</AlertDescription>
-            </Alert>
-          )}
+        {error && (
+          <Alert variant="destructive" className="mb-4">
+            <AlertCircle className="h-4 w-4" />
+            <AlertTitle>{error}</AlertTitle>
+            <AlertDescription>
+              {errorDetails}
+              <div className="mt-2">
+                <Link href="/auth/troubleshoot" className="text-blue-600 dark:text-blue-400 hover:underline text-sm">
+                  View troubleshooting guide
+                </Link>
+              </div>
+            </AlertDescription>
+          </Alert>
+        )}
 
+        <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
           <div className="space-y-2">
             <Label htmlFor="email">Email</Label>
             <Input

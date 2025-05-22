@@ -8,6 +8,20 @@ import prisma from "@/lib/prisma"
 
 const env = validateEnv()
 
+// Get the base URL for the application
+const baseUrl =
+  process.env.NEXTAUTH_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000")
+
+// Enhanced logging function
+function logAuthEvent(event: string, details: any) {
+  console.log(`[AUTH] ${event}:`, JSON.stringify(details, null, 2))
+
+  // In production, you might want to log to a service like Sentry or Datadog
+  if (process.env.NODE_ENV === "production") {
+    // Example: Sentry.captureMessage(`[AUTH] ${event}`, { extra: details })
+  }
+}
+
 export const authOptions: NextAuthOptions = {
   adapter: PrismaAdapter(prisma),
   session: {
@@ -68,10 +82,18 @@ export const authOptions: NextAuthOptions = {
           response_type: "code",
         },
       },
+      // Explicitly define the profile function to ensure consistent data structure
       profile(profile) {
+        logAuthEvent("Google profile received", {
+          id: profile.sub,
+          email: profile.email,
+          name: profile.name,
+          image: profile.picture,
+        })
+
         return {
           id: profile.sub,
-          name: profile.name,
+          name: profile.name || "Unknown Name",
           email: profile.email,
           image: profile.picture,
           role: "USER",
@@ -80,17 +102,49 @@ export const authOptions: NextAuthOptions = {
     }),
   ],
   callbacks: {
-    async signIn({ account, profile, user }) {
-      // Always allow sign in
+    async signIn({ account, profile, user, credentials }) {
+      logAuthEvent("Sign in attempt", {
+        provider: account?.provider,
+        email: user?.email,
+        hasProfile: !!profile,
+        hasCredentials: !!credentials,
+      })
+
+      // For Google sign-in
+      if (account?.provider === "google" && profile?.email) {
+        try {
+          // Check if user exists
+          const existingUser = await prisma.user.findUnique({
+            where: { email: profile.email },
+          })
+
+          logAuthEvent("User lookup result", {
+            email: profile.email,
+            userExists: !!existingUser,
+          })
+
+          return true
+        } catch (error) {
+          logAuthEvent("Error during sign in", { error })
+          return false
+        }
+      }
+
       return true
     },
     async redirect({ url, baseUrl }) {
+      logAuthEvent("Redirect callback", { url, baseUrl })
+
       // Handle redirects after sign in
       // If the URL starts with the base URL, allow it
-      if (url.startsWith(baseUrl)) return url
+      if (url.startsWith(baseUrl)) {
+        return url
+      }
 
       // If the URL is a relative URL, prepend the base URL
-      if (url.startsWith("/")) return `${baseUrl}${url}`
+      if (url.startsWith("/")) {
+        return `${baseUrl}${url}`
+      }
 
       // Otherwise, return to the base URL
       return baseUrl
@@ -104,9 +158,22 @@ export const authOptions: NextAuthOptions = {
         session.user.role = token.role as string
       }
 
+      logAuthEvent("Session callback", {
+        userId: session.user.id,
+        userEmail: session.user.email,
+      })
+
       return session
     },
     async jwt({ token, user, account, profile }) {
+      logAuthEvent("JWT callback", {
+        hasToken: !!token,
+        hasUser: !!user,
+        hasAccount: !!account,
+        hasProfile: !!profile,
+        provider: account?.provider,
+      })
+
       // Initial sign in
       if (account && user) {
         return {
@@ -138,6 +205,11 @@ export const authOptions: NextAuthOptions = {
               },
             })
 
+            logAuthEvent("Updated existing user", {
+              userId: updatedUser.id,
+              email: updatedUser.email,
+            })
+
             return {
               ...token,
               id: updatedUser.id,
@@ -154,6 +226,11 @@ export const authOptions: NextAuthOptions = {
               },
             })
 
+            logAuthEvent("Created new user", {
+              userId: newUser.id,
+              email: newUser.email,
+            })
+
             return {
               ...token,
               id: newUser.id,
@@ -161,60 +238,81 @@ export const authOptions: NextAuthOptions = {
             }
           }
         } catch (error) {
-          console.error("Error handling Google sign-in:", error)
+          logAuthEvent("Error handling Google sign-in", { error })
           // Continue with token as is
         }
       }
 
       // Return previous token if the user hasn't changed
-      const dbUser = await prisma.user.findFirst({
-        where: {
-          email: token.email,
-        },
-      })
+      try {
+        const dbUser = await prisma.user.findFirst({
+          where: {
+            email: token.email,
+          },
+        })
 
-      if (!dbUser) {
-        if (user) {
-          token.id = user.id
+        if (!dbUser) {
+          if (user) {
+            token.id = user.id
+          }
+          return token
         }
-        return token
-      }
 
-      return {
-        ...token,
-        id: dbUser.id,
-        name: dbUser.name,
-        email: dbUser.email,
-        picture: dbUser.image,
-        role: dbUser.role,
+        return {
+          ...token,
+          id: dbUser.id,
+          name: dbUser.name,
+          email: dbUser.email,
+          picture: dbUser.image,
+          role: dbUser.role,
+        }
+      } catch (error) {
+        logAuthEvent("Error retrieving user data for JWT", { error, email: token.email })
+        return token
       }
     },
   },
   events: {
     async signIn({ user, account, profile, isNewUser }) {
-      console.log(`User ${user.email} signed in with ${account?.provider}`)
+      logAuthEvent("User signed in", {
+        userId: user.id,
+        email: user.email,
+        provider: account?.provider,
+        isNewUser,
+      })
     },
     async createUser({ user }) {
-      console.log(`New user created: ${user.email}`)
+      logAuthEvent("New user created", { userId: user.id, email: user.email })
     },
     async linkAccount({ user, account, profile }) {
-      console.log(`Account linked for user: ${user.email}`)
+      logAuthEvent("Account linked", {
+        userId: user.id,
+        email: user.email,
+        provider: account.provider,
+      })
     },
     async session({ session, token }) {
       // Log session updates if needed
+      logAuthEvent("Session updated", {
+        userId: session.user.id,
+        email: session.user.email,
+      })
+    },
+    async error(error) {
+      logAuthEvent("Authentication error", { error })
     },
   },
   debug: process.env.NODE_ENV === "development",
   logger: {
     error(code, metadata) {
-      console.error(`Auth error: ${code}`, metadata)
+      logAuthEvent(`Error: ${code}`, metadata)
     },
     warn(code) {
-      console.warn(`Auth warning: ${code}`)
+      logAuthEvent(`Warning: ${code}`, {})
     },
     debug(code, metadata) {
       if (process.env.NODE_ENV === "development") {
-        console.debug(`Auth debug: ${code}`, metadata)
+        logAuthEvent(`Debug: ${code}`, metadata)
       }
     },
   },
