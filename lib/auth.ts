@@ -9,11 +9,20 @@ import prisma from "@/lib/prisma"
 const env = validateEnv()
 
 // Enhanced logging function
-function logAuthEvent(event: string, details: any) {
+export function logAuthEvent(event: string, details: any) {
   console.log(`[AUTH] ${event}:`, JSON.stringify(details, null, 2))
 }
 
-// Get the base URL for the application
+// Determine the base URL for the application.
+// It's crucial for OAuth providers to have the correct callback URL.
+// 1. `NEXTAUTH_URL` (recommended for production): Explicitly set this environment variable
+//    to the canonical URL of your application. This is the most reliable way to ensure
+//    NextAuth.js uses the correct URL, especially in production or complex deployment scenarios.
+// 2. `VERCEL_URL` (Vercel specific): If deployed on Vercel and `NEXTAUTH_URL` is not set,
+//    NextAuth.js will attempt to use the system-provided `VERCEL_URL`.
+//    `https://` is prepended as Vercel deployments are HTTPS.
+// 3. `http://localhost:3000` (fallback): For local development, if neither of the above
+//    is set, it defaults to `http://localhost:3000`.
 const baseUrl =
   process.env.NEXTAUTH_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000")
 
@@ -155,7 +164,12 @@ export const authOptions: NextAuthOptions = {
 
           return true
         } catch (error) {
-          logAuthEvent("Error during sign in", { error })
+          logAuthEvent("Error during Google sign-in user lookup", {
+            email: profile.email,
+            error: error instanceof Error ? error.message : String(error),
+            // Optionally, include stack if helpful for debugging, but be mindful of log verbosity
+            // stack: error instanceof Error ? error.stack : undefined, 
+          })
           return false
         }
       }
@@ -268,7 +282,11 @@ export const authOptions: NextAuthOptions = {
             }
           }
         } catch (error) {
-          logAuthEvent("Error handling Google sign-in", { error })
+          logAuthEvent("Error during Google JWT processing (user/profile data exists)", {
+            email: profile.email, // profile should be in scope here
+            error: error instanceof Error ? error.message : String(error),
+            // stack: error instanceof Error ? error.stack : undefined, // Optional
+          })
           // Continue with token as is
         }
       }
