@@ -98,6 +98,7 @@ export default function AuthErrorPage() {
           setTroubleshootingSteps([
             "Contact the application administrator to report this issue.",
             "The server might be missing required environment variables or configuration settings.",
+            "Administrators can check the server logs for specific error messages related to the auth configuration.",
           ])
           break
         default:
@@ -166,6 +167,9 @@ export default function AuthErrorPage() {
                       <p>Time: {new Date().toISOString()}</p>
                       <p>Browser: {navigator.userAgent}</p>
                     </div>
+                    <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                      Administrators: Detailed server-side logs are available and may provide further context for this error code and timestamp.
+                    </p>
                     <p className="mt-2 text-sm">
                       If contacting support, please include this information to help diagnose the issue.
                     </p>
