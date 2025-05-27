@@ -27,7 +27,7 @@ This is a full-stack web application that combines Qdrant (vector database) with
 
 ## 📁 Project Structure
 
-```
+\`\`\`
 app/
   ├── api/                  # API routes (REST endpoints)
   ├── auth/                 # Login/Register pages
@@ -52,5 +52,4 @@ lib/
   ├── pdf-loader.ts        # PDF parsing logic
   ├── stripe.ts            # Stripe setup
   └── prisma.ts            # Prisma client
-```
-
+\`\`\`

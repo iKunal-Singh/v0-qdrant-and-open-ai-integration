@@ -8,26 +8,66 @@ import prisma from "@/lib/prisma"
 
 const env = validateEnv()
 
-// Enhanced logging function
-export function logAuthEvent(event: string, details: any) {
-  console.log(`[AUTH] ${event}:`, JSON.stringify(details, null, 2))
+// Enhanced logging function with structured logging
+export function logAuthEvent(event: string, details: any, level: "info" | "warn" | "error" = "info") {
+  const logEntry = {
+    timestamp: new Date().toISOString(),
+    level,
+    event,
+    details,
+    environment: process.env.NODE_ENV,
+  }
+
+  console.log(`[AUTH-${level.toUpperCase()}] ${event}:`, JSON.stringify(logEntry, null, 2))
+
+  // In production, you might want to send this to a logging service
+  if (process.env.NODE_ENV === "production" && level === "error") {
+    // Example: Send to external logging service
+    // await sendToLoggingService(logEntry)
+  }
 }
 
-// Determine the base URL for the application.
-// It's crucial for OAuth providers to have the correct callback URL.
-// 1. `NEXTAUTH_URL` (recommended for production): Explicitly set this environment variable
-//    to the canonical URL of your application. This is the most reliable way to ensure
-//    NextAuth.js uses the correct URL, especially in production or complex deployment scenarios.
-// 2. `VERCEL_URL` (Vercel specific): If deployed on Vercel and `NEXTAUTH_URL` is not set,
-//    NextAuth.js will attempt to use the system-provided `VERCEL_URL`.
-//    `https://` is prepended as Vercel deployments are HTTPS.
-// 3. `http://localhost:3000` (fallback): For local development, if neither of the above
-//    is set, it defaults to `http://localhost:3000`.
-const baseUrl =
-  process.env.NEXTAUTH_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000")
+// Determine the base URL for the application with validation
+function getBaseUrl(): string {
+  const baseUrl =
+    process.env.NEXTAUTH_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000")
 
-// Determine if we're in a production environment
+  // Validate the base URL format
+  try {
+    new URL(baseUrl)
+  } catch (error) {
+    logAuthEvent("Invalid base URL configuration", { baseUrl, error }, "error")
+    throw new Error(`Invalid NEXTAUTH_URL or VERCEL_URL: ${baseUrl}`)
+  }
+
+  return baseUrl
+}
+
+const baseUrl = getBaseUrl()
 const isProduction = process.env.NODE_ENV === "production"
+
+// Validate required environment variables
+function validateAuthEnvironment() {
+  const required = {
+    NEXTAUTH_SECRET: process.env.NEXTAUTH_SECRET,
+    GOOGLE_CLIENT_ID: process.env.GOOGLE_CLIENT_ID,
+    GOOGLE_CLIENT_SECRET: process.env.GOOGLE_CLIENT_SECRET,
+  }
+
+  const missing = Object.entries(required)
+    .filter(([key, value]) => !value)
+    .map(([key]) => key)
+
+  if (missing.length > 0) {
+    logAuthEvent("Missing required environment variables", { missing }, "error")
+    throw new Error(`Missing required environment variables: ${missing.join(", ")}`)
+  }
+
+  logAuthEvent("Environment validation passed", { baseUrl, isProduction })
+}
+
+// Validate environment on startup
+validateAuthEnvironment()
 
 export const authOptions: NextAuthOptions = {
   adapter: PrismaAdapter(prisma),
@@ -35,7 +75,7 @@ export const authOptions: NextAuthOptions = {
     strategy: "jwt",
     maxAge: 30 * 24 * 60 * 60, // 30 days
   },
-  // Explicitly set the cookie options to ensure proper handling across environments
+  // Enhanced cookie configuration with better security
   cookies: {
     sessionToken: {
       name: `${isProduction ? "__Secure-" : ""}next-auth.session-token`,
@@ -44,6 +84,7 @@ export const authOptions: NextAuthOptions = {
         sameSite: "lax",
         path: "/",
         secure: isProduction,
+        domain: isProduction ? undefined : undefined, // Let the browser determine
       },
     },
     callbackUrl: {
@@ -81,54 +122,73 @@ export const authOptions: NextAuthOptions = {
       },
       async authorize(credentials) {
         if (!credentials?.email || !credentials?.password) {
+          logAuthEvent("Invalid credentials provided", { email: credentials?.email }, "warn")
           throw new Error("Invalid credentials")
         }
 
-        const user = await prisma.user.findUnique({
-          where: {
-            email: credentials.email,
-          },
-        })
+        try {
+          const user = await prisma.user.findUnique({
+            where: { email: credentials.email },
+          })
 
-        if (!user || !user.password) {
-          throw new Error("User not found")
-        }
+          if (!user || !user.password) {
+            logAuthEvent("User not found or no password", { email: credentials.email }, "warn")
+            throw new Error("User not found")
+          }
 
-        const isPasswordValid = await compare(credentials.password, user.password)
+          const isPasswordValid = await compare(credentials.password, user.password)
 
-        if (!isPasswordValid) {
-          throw new Error("Invalid password")
-        }
+          if (!isPasswordValid) {
+            logAuthEvent("Invalid password attempt", { email: credentials.email }, "warn")
+            throw new Error("Invalid password")
+          }
 
-        return {
-          id: user.id,
-          email: user.email,
-          name: user.name,
-          image: user.image,
-          role: user.role,
+          logAuthEvent("Successful credentials authentication", { userId: user.id, email: user.email })
+          return {
+            id: user.id,
+            email: user.email,
+            name: user.name,
+            image: user.image,
+            role: user.role,
+          }
+        } catch (error) {
+          logAuthEvent(
+            "Database error during authentication",
+            {
+              email: credentials.email,
+              error: error instanceof Error ? error.message : String(error),
+            },
+            "error",
+          )
+          throw error
         }
       },
     }),
     GoogleProvider({
-      clientId: process.env.GOOGLE_CLIENT_ID || "",
-      clientSecret: process.env.GOOGLE_CLIENT_SECRET || "",
-      // Explicitly set the callback URL to ensure it matches what's configured in Google Cloud Console
+      clientId: process.env.GOOGLE_CLIENT_ID!,
+      clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
       authorization: {
         params: {
           prompt: "consent",
           access_type: "offline",
           response_type: "code",
+          // Explicitly set the redirect_uri to ensure consistency
           redirect_uri: `${baseUrl}/api/auth/callback/google`,
         },
       },
-      // Explicitly define the profile function to ensure consistent data structure
       profile(profile) {
         logAuthEvent("Google profile received", {
           id: profile.sub,
           email: profile.email,
           name: profile.name,
-          image: profile.picture,
+          verified_email: profile.email_verified,
         })
+
+        // Validate required profile fields
+        if (!profile.email) {
+          logAuthEvent("Google profile missing email", { profile }, "error")
+          throw new Error("Google profile is missing email address")
+        }
 
         return {
           id: profile.sub,
@@ -142,187 +202,238 @@ export const authOptions: NextAuthOptions = {
   ],
   callbacks: {
     async signIn({ account, profile, user, credentials }) {
-      logAuthEvent("Sign in attempt", {
+      logAuthEvent("Sign in callback triggered", {
         provider: account?.provider,
-        email: user?.email,
+        email: user?.email || profile?.email,
         hasProfile: !!profile,
         hasCredentials: !!credentials,
+        accountType: account?.type,
       })
 
-      // For Google sign-in
-      if (account?.provider === "google" && profile?.email) {
-        try {
+      try {
+        // For Google sign-in
+        if (account?.provider === "google" && profile?.email) {
+          // Validate Google account
+          if (!profile.email_verified) {
+            logAuthEvent("Google email not verified", { email: profile.email }, "warn")
+            return false
+          }
+
           // Check if user exists
           const existingUser = await prisma.user.findUnique({
             where: { email: profile.email },
           })
 
-          logAuthEvent("User lookup result", {
+          logAuthEvent("Google sign-in user lookup", {
             email: profile.email,
             userExists: !!existingUser,
+            userId: existingUser?.id,
           })
 
           return true
-        } catch (error) {
-          logAuthEvent("Error during Google sign-in user lookup", {
-            email: profile.email,
-            error: error instanceof Error ? error.message : String(error),
-            // Optionally, include stack if helpful for debugging, but be mindful of log verbosity
-            // stack: error instanceof Error ? error.stack : undefined, 
-          })
-          return false
         }
-      }
 
-      return true
+        return true
+      } catch (error) {
+        logAuthEvent(
+          "Error in signIn callback",
+          {
+            provider: account?.provider,
+            email: user?.email || profile?.email,
+            error: error instanceof Error ? error.message : String(error),
+          },
+          "error",
+        )
+        return false
+      }
     },
-    async redirect({ url, baseUrl }) {
-      logAuthEvent("Redirect callback", { url, baseUrl })
 
-      // Handle redirects after sign in
-      // If the URL starts with the base URL, allow it
-      if (url.startsWith(baseUrl)) {
-        return url
+    async redirect({ url, baseUrl: callbackBaseUrl }) {
+      logAuthEvent("Redirect callback", { url, baseUrl: callbackBaseUrl })
+
+      try {
+        // Validate the redirect URL
+        if (url.startsWith(callbackBaseUrl)) {
+          return url
+        }
+
+        if (url.startsWith("/")) {
+          return `${callbackBaseUrl}${url}`
+        }
+
+        // For security, only allow redirects to the same domain
+        const redirectUrl = new URL(url)
+        const baseUrlObj = new URL(callbackBaseUrl)
+
+        if (redirectUrl.hostname === baseUrlObj.hostname) {
+          return url
+        }
+
+        logAuthEvent("Blocked external redirect", { url, baseUrl: callbackBaseUrl }, "warn")
+        return callbackBaseUrl
+      } catch (error) {
+        logAuthEvent("Error in redirect callback", { url, error }, "error")
+        return callbackBaseUrl
       }
-
-      // If the URL is a relative URL, prepend the base URL
-      if (url.startsWith("/")) {
-        return `${baseUrl}${url}`
-      }
-
-      // Otherwise, return to the base URL
-      return baseUrl
     },
+
     async session({ token, session }) {
-      if (token) {
-        session.user.id = token.id as string
-        session.user.name = token.name as string
-        session.user.email = token.email as string
-        session.user.image = token.picture as string
-        session.user.role = token.role as string
+      try {
+        if (token) {
+          session.user.id = token.id as string
+          session.user.name = token.name as string
+          session.user.email = token.email as string
+          session.user.image = token.picture as string
+          session.user.role = token.role as string
+        }
+
+        logAuthEvent("Session callback completed", {
+          userId: session.user.id,
+          userEmail: session.user.email,
+        })
+
+        return session
+      } catch (error) {
+        logAuthEvent("Error in session callback", { error }, "error")
+        throw error
       }
-
-      logAuthEvent("Session callback", {
-        userId: session.user.id,
-        userEmail: session.user.email,
-      })
-
-      return session
     },
-    async jwt({ token, user, account, profile }) {
-      logAuthEvent("JWT callback", {
+
+    async jwt({ token, user, account, profile, trigger }) {
+      logAuthEvent("JWT callback triggered", {
         hasToken: !!token,
         hasUser: !!user,
         hasAccount: !!account,
         hasProfile: !!profile,
         provider: account?.provider,
+        trigger,
       })
 
-      // Initial sign in
-      if (account && user) {
-        return {
-          ...token,
-          id: user.id,
-          role: user.role || "USER",
-        }
-      }
-
-      // Google sign in without existing user
-      if (account?.provider === "google" && profile && !user) {
-        try {
-          // Check if user exists by email
-          const existingUser = await prisma.user.findUnique({
-            where: {
-              email: profile.email,
-            },
-          })
-
-          if (existingUser) {
-            // User exists, update their profile
-            const updatedUser = await prisma.user.update({
-              where: {
-                id: existingUser.id,
-              },
-              data: {
-                name: profile.name,
-                image: profile.picture,
-              },
-            })
-
-            logAuthEvent("Updated existing user", {
-              userId: updatedUser.id,
-              email: updatedUser.email,
-            })
-
-            return {
-              ...token,
-              id: updatedUser.id,
-              role: updatedUser.role,
-            }
-          } else {
-            // Create a new user with Google profile data
-            const newUser = await prisma.user.create({
-              data: {
-                name: profile.name,
-                email: profile.email as string,
-                image: profile.picture,
-                role: "USER",
-              },
-            })
-
-            logAuthEvent("Created new user", {
-              userId: newUser.id,
-              email: newUser.email,
-            })
-
-            return {
-              ...token,
-              id: newUser.id,
-              role: newUser.role,
-            }
-          }
-        } catch (error) {
-          logAuthEvent("Error during Google JWT processing (user/profile data exists)", {
-            email: profile.email, // profile should be in scope here
-            error: error instanceof Error ? error.message : String(error),
-            // stack: error instanceof Error ? error.stack : undefined, // Optional
-          })
-          // Continue with token as is
-        }
-      }
-
-      // Return previous token if the user hasn't changed
       try {
-        const dbUser = await prisma.user.findFirst({
-          where: {
-            email: token.email,
-          },
-        })
+        // Initial sign in
+        if (account && user) {
+          logAuthEvent("Initial JWT creation", {
+            userId: user.id,
+            provider: account.provider,
+          })
 
-        if (!dbUser) {
-          if (user) {
-            token.id = user.id
+          return {
+            ...token,
+            id: user.id,
+            role: user.role || "USER",
           }
-          return token
         }
 
-        return {
-          ...token,
-          id: dbUser.id,
-          name: dbUser.name,
-          email: dbUser.email,
-          picture: dbUser.image,
-          role: dbUser.role,
+        // Google sign in - handle user creation/update
+        if (account?.provider === "google" && profile && !user) {
+          try {
+            const existingUser = await prisma.user.findUnique({
+              where: { email: profile.email },
+            })
+
+            if (existingUser) {
+              // Update existing user
+              const updatedUser = await prisma.user.update({
+                where: { id: existingUser.id },
+                data: {
+                  name: profile.name,
+                  image: profile.picture,
+                  emailVerified: new Date(), // Mark as verified since it's from Google
+                },
+              })
+
+              logAuthEvent("Updated existing Google user", {
+                userId: updatedUser.id,
+                email: updatedUser.email,
+              })
+
+              return {
+                ...token,
+                id: updatedUser.id,
+                role: updatedUser.role,
+              }
+            } else {
+              // Create new user
+              const newUser = await prisma.user.create({
+                data: {
+                  name: profile.name,
+                  email: profile.email as string,
+                  image: profile.picture,
+                  role: "USER",
+                  emailVerified: new Date(),
+                },
+              })
+
+              logAuthEvent("Created new Google user", {
+                userId: newUser.id,
+                email: newUser.email,
+              })
+
+              return {
+                ...token,
+                id: newUser.id,
+                role: newUser.role,
+              }
+            }
+          } catch (dbError) {
+            logAuthEvent(
+              "Database error during Google user processing",
+              {
+                email: profile.email,
+                error: dbError instanceof Error ? dbError.message : String(dbError),
+              },
+              "error",
+            )
+            throw new Error("Failed to process user data")
+          }
         }
-      } catch (error) {
-        logAuthEvent("Error retrieving user data for JWT", { error, email: token.email })
+
+        // Refresh user data from database
+        if (token.email) {
+          try {
+            const dbUser = await prisma.user.findUnique({
+              where: { email: token.email },
+            })
+
+            if (dbUser) {
+              return {
+                ...token,
+                id: dbUser.id,
+                name: dbUser.name,
+                email: dbUser.email,
+                picture: dbUser.image,
+                role: dbUser.role,
+              }
+            }
+          } catch (dbError) {
+            logAuthEvent(
+              "Error refreshing user data",
+              {
+                email: token.email,
+                error: dbError instanceof Error ? dbError.message : String(dbError),
+              },
+              "error",
+            )
+          }
+        }
+
         return token
+      } catch (error) {
+        logAuthEvent(
+          "Critical error in JWT callback",
+          {
+            error: error instanceof Error ? error.message : String(error),
+            stack: error instanceof Error ? error.stack : undefined,
+          },
+          "error",
+        )
+        throw error
       }
     },
   },
   events: {
     async signIn({ user, account, profile, isNewUser }) {
-      logAuthEvent("User signed in", {
+      logAuthEvent("User signed in successfully", {
         userId: user.id,
         email: user.email,
         provider: account?.provider,
@@ -339,28 +450,29 @@ export const authOptions: NextAuthOptions = {
         provider: account.provider,
       })
     },
-    async session({ session, token }) {
-      // Log session updates if needed
-      logAuthEvent("Session updated", {
-        userId: session.user.id,
-        email: session.user.email,
-      })
-    },
     async error(error) {
-      logAuthEvent("Authentication error", { error })
+      logAuthEvent(
+        "NextAuth error event",
+        {
+          error: error.message,
+          name: error.name,
+          stack: error.stack,
+        },
+        "error",
+      )
     },
   },
   debug: process.env.NODE_ENV === "development",
   logger: {
     error(code, metadata) {
-      logAuthEvent(`Error: ${code}`, metadata)
+      logAuthEvent(`NextAuth Error: ${code}`, metadata, "error")
     },
     warn(code) {
-      logAuthEvent(`Warning: ${code}`, {})
+      logAuthEvent(`NextAuth Warning: ${code}`, {}, "warn")
     },
     debug(code, metadata) {
       if (process.env.NODE_ENV === "development") {
-        logAuthEvent(`Debug: ${code}`, metadata)
+        logAuthEvent(`NextAuth Debug: ${code}`, metadata)
       }
     },
   },
