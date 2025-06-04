@@ -12,7 +12,6 @@ import { Label } from "@/components/ui/label"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { LoaderIcon } from "lucide-react"
-import { FcGoogle } from "react-icons/fc"
 
 const registerSchema = z
   .object({
@@ -37,7 +36,6 @@ export function RegisterForm() {
   const router = useRouter()
   const [error, setError] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
-  const [isGoogleLoading, setIsGoogleLoading] = useState(false)
 
   const {
     register,
@@ -85,20 +83,6 @@ export function RegisterForm() {
       console.error("Registration error:", error)
     } finally {
       setIsLoading(false)
-    }
-  }
-
-  const handleGoogleSignUp = async () => {
-    setIsGoogleLoading(true)
-    setError(null)
-
-    try {
-      await signIn("google", { callbackUrl: "/dashboard" })
-      // Note: No need to manually redirect as signIn will handle it
-    } catch (error) {
-      setError("Failed to sign up with Google. Please try again.")
-      console.error("Google sign-up error:", error)
-      setIsGoogleLoading(false)
     }
   }
 
@@ -188,20 +172,25 @@ export function RegisterForm() {
             </div>
             <div className="relative flex justify-center text-sm">
               <span className="px-2 bg-primary-light dark:bg-primary-dark text-text-light/60 dark:text-text-dark/60">
-                Or sign up with
+                Or continue with
               </span>
             </div>
           </div>
 
-          <div className="mt-6 grid grid-cols-1 gap-3">
+          <div className="mt-6 grid grid-cols-2 gap-3">
             <Button
               variant="outline"
-              onClick={handleGoogleSignUp}
-              disabled={isGoogleLoading}
-              className="w-full flex items-center justify-center gap-2"
+              onClick={() => signIn("google", { callbackUrl: "/dashboard" })}
+              className="w-full"
             >
-              {isGoogleLoading ? <LoaderIcon className="h-4 w-4 animate-spin" /> : <FcGoogle className="h-5 w-5" />}
-              <span>Sign up with Google</span>
+              Google
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => signIn("email", { email: "", callbackUrl: "/dashboard" })}
+              className="w-full"
+            >
+              Email Link
             </Button>
           </div>
         </div>

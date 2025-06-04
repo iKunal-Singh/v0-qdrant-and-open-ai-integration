@@ -1,21 +1,16 @@
-import { clsx, type ClassValue } from "clsx"
+import { type ClassValue, clsx } from "clsx"
 import { twMerge } from "tailwind-merge"
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
 
-// Add this function to the existing utils.ts file
-export function formatDate(date: Date | string | number): string {
-  const dateObj = new Date(date)
-
-  if (isNaN(dateObj.getTime())) {
-    return "Invalid date"
-  }
-
-  return dateObj.toLocaleDateString("en-US", {
+export function formatDate(date: Date): string {
+  return new Intl.DateTimeFormat("en-US", {
     year: "numeric",
     month: "long",
     day: "numeric",
-  })
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(date))
 }

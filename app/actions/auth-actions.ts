@@ -3,7 +3,6 @@
 import { hash } from "bcryptjs"
 import { z } from "zod"
 import prisma from "@/lib/prisma"
-import { logAuthEvent } from "@/lib/auth" // Adjust path if necessary
 
 const registerSchema = z.object({
   name: z.string().min(1, "Name is required"),
@@ -62,12 +61,7 @@ export async function registerUser(formData: FormData) {
       message: "Registration successful",
     }
   } catch (error) {
-    logAuthEvent("User registration error", {
-      name: formData.get("name"),
-      email: formData.get("email"),
-      errorMessage: error instanceof Error ? error.message : String(error),
-      // stack: error instanceof Error ? error.stack : undefined, // Optionally add stack
-    });
+    console.error("Registration error:", error)
     return {
       success: false,
       error: "Something went wrong. Please try again.",

@@ -1,7 +1,7 @@
 "use client"
 
-import { useState, useEffect } from "react"
-import { useRouter, useSearchParams } from "next/navigation"
+import { useState } from "react"
+import { useRouter } from "next/navigation"
 import { signIn } from "next-auth/react"
 import { z } from "zod"
 import { useForm } from "react-hook-form"
@@ -9,11 +9,9 @@ import { zodResolver } from "@hookform/resolvers/zod"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
-import { LoaderIcon, AlertCircle } from "lucide-react"
-import { FcGoogle } from "react-icons/fc"
-import Link from "next/link"
+import { LoaderIcon } from "lucide-react"
 
 const loginSchema = z.object({
   email: z.string().email("Please enter a valid email address"),
@@ -24,63 +22,8 @@ type LoginFormValues = z.infer<typeof loginSchema>
 
 export function LoginForm() {
   const router = useRouter()
-  const searchParams = useSearchParams()
-
-  // Safely access search params with null checks
-  const callbackUrl = searchParams ? searchParams.get("callbackUrl") || "/dashboard" : "/dashboard"
-  const errorParam = searchParams ? searchParams.get("error") : null
-
   const [error, setError] = useState<string | null>(null)
-  const [errorDetails, setErrorDetails] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
-  const [isGoogleLoading, setIsGoogleLoading] = useState(false)
-
-  // Set error from URL parameter if present
-  useEffect(() => {
-    if (errorParam) {
-      let errorMessage = "An error occurred during sign in"
-      let details = "Please try again or contact support if the problem persists."
-
-      // Map error codes to user-friendly messages
-      switch (errorParam) {
-        case "Callback":
-          errorMessage = "Authentication callback error"
-          details =
-            "There was an issue with the authentication callback. This might be due to configuration issues. Click the troubleshooting link below for help."
-          break
-        case "AccessDenied":
-          errorMessage = "Access denied"
-          details = "You may not have permission to sign in. Please contact support if you believe this is an error."
-          break
-        case "OAuthSignin":
-          errorMessage = "Sign-in error"
-          details = "Error starting the authentication process. Please try again."
-          break
-        case "OAuthCallback":
-          errorMessage = "Authentication error"
-          details = "Error during the authentication callback. Please try again or use a different sign-in method."
-          break
-        case "OAuthCreateAccount":
-          errorMessage = "Account creation error"
-          details = "Error creating your account. Please try again or contact support."
-          break
-        case "EmailCreateAccount":
-          errorMessage = "Email account error"
-          details = "Error creating your email account. Please try again or contact support."
-          break
-        case "SessionRequired":
-          errorMessage = "Authentication required"
-          details = "You need to be signed in to access this page."
-          break
-        default:
-          errorMessage = `Authentication error: ${errorParam}`
-          details = "An unexpected error occurred. Please try again or contact support."
-      }
-
-      setError(errorMessage)
-      setErrorDetails(details)
-    }
-  }, [errorParam])
 
   const {
     register,
@@ -93,53 +36,26 @@ export function LoginForm() {
   const onSubmit = async (data: LoginFormValues) => {
     setIsLoading(true)
     setError(null)
-    setErrorDetails(null)
 
     try {
       const result = await signIn("credentials", {
         redirect: false,
         email: data.email,
         password: data.password,
-        callbackUrl,
       })
 
       if (result?.error) {
-        setError("Authentication failed")
-        setErrorDetails(result.error)
+        setError(result.error)
         return
       }
 
-      router.push(callbackUrl)
+      router.push("/dashboard")
       router.refresh()
     } catch (error) {
-      setError("An unexpected error occurred")
-      setErrorDetails("Please try again or contact support if the problem persists.")
+      setError("An unexpected error occurred. Please try again.")
       console.error("Login error:", error)
     } finally {
       setIsLoading(false)
-    }
-  }
-
-  const handleGoogleSignIn = async () => {
-    setIsGoogleLoading(true)
-    setError(null)
-    setErrorDetails(null)
-
-    try {
-      // Log the attempt for debugging
-      console.log("Attempting Google sign-in with callback URL:", callbackUrl)
-
-      // Use callbackUrl to redirect after successful authentication
-      await signIn("google", {
-        callbackUrl,
-        redirect: true,
-      })
-      // Note: The page will redirect, so the code below won't execute
-    } catch (error) {
-      setError("Google sign-in failed")
-      setErrorDetails("Please try again or use a different sign-in method.")
-      console.error("Google sign-in error:", error)
-      setIsGoogleLoading(false)
     }
   }
 
@@ -152,27 +68,13 @@ export function LoginForm() {
         <CardDescription>Enter your credentials to access your account</CardDescription>
       </CardHeader>
       <CardContent>
-        {error && (
-          <Alert variant="destructive" className="mb-4">
-            <AlertCircle className="h-4 w-4" />
-            <AlertTitle>{error}</AlertTitle>
-            <AlertDescription>
-              {errorDetails}
-              {(errorParam === "Callback" || errorParam === "OAuthCallback") && (
-                <div className="mt-2">
-                  <Link
-                    href="/auth/callback-debug"
-                    className="text-blue-600 dark:text-blue-400 hover:underline text-sm"
-                  >
-                    View callback troubleshooting guide
-                  </Link>
-                </div>
-              )}
-            </AlertDescription>
-          </Alert>
-        )}
-
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+          {error && (
+            <Alert variant="destructive" className="mb-4">
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
+          )}
+
           <div className="space-y-2">
             <Label htmlFor="email">Email</Label>
             <Input
@@ -233,15 +135,20 @@ export function LoginForm() {
             </div>
           </div>
 
-          <div className="mt-6 grid grid-cols-1 gap-3">
+          <div className="mt-6 grid grid-cols-2 gap-3">
             <Button
               variant="outline"
-              onClick={handleGoogleSignIn}
-              disabled={isGoogleLoading}
-              className="w-full flex items-center justify-center gap-2"
+              onClick={() => signIn("google", { callbackUrl: "/dashboard" })}
+              className="w-full"
             >
-              {isGoogleLoading ? <LoaderIcon className="h-4 w-4 animate-spin" /> : <FcGoogle className="h-5 w-5" />}
-              <span>Sign in with Google</span>
+              Google
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => signIn("email", { email: "", callbackUrl: "/dashboard" })}
+              className="w-full"
+            >
+              Email Link
             </Button>
           </div>
         </div>
